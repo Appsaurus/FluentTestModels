@@ -18,7 +18,7 @@ public class ExampleModelsSeeder: Seeder{
 	public static let exampleChildModelCount = 10
 	public static let siblingsPerExampleModel = 10
 
-	open static func seeds() -> [SeedProtocol]{
+	public static func seeds() -> [SeedProtocol]{
 		return [
 			//Seed models first
 			Seed<ExampleModel>(count: exampleModelCount),
