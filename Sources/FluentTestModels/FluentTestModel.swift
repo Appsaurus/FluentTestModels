@@ -5,7 +5,6 @@
 //  Created by Brian Strobach on 6/4/18.
 //
 
-import Foundation
-import FluentSQLite
+import Fluent
 import Vapor
-public typealias FluentTestModel = Reflectable & SQLiteModel & Content & Migration
+public typealias FluentTestModel = Model & Content & Migration
