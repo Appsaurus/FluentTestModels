@@ -5,40 +5,14 @@
     import FluentKit
     @testable import FluentTestModels
 
-    final class FluentTestModelsTests: XCTestCase {
+    final class FluentTestModelsTests: FluentTestModels.TestCase {
 
-        private var app: Application!
-
-        override func setUp() {
-            super.setUp()
-
-            app = Application(.testing)
+        override func configure(_ app: Application) throws {
+            try super.configure(app)
             app.logger.logLevel = .debug
-
-            app.databases.use(.sqlite(.memory), as: .sqlite)
-
-            let siblingsMiddleware = FriendshipModel.selfSiblingMiddleware(from: \.$fromUser, to: \.$toUser)
-            app.databases.middleware.use(siblingsMiddleware)
-            try! migrations(app)
-            try! app.autoRevert().wait()
-            try! app.autoMigrate().wait()
-
         }
 
-        private func migrations(_ app: Application) throws {
-            app.migrations.add([
-                KitchenSink(),
-                ParentModelMigration(),
-                ChildModelMigration(),
-                StudentModel(),
-                ClassModel(),
-                EnrollmentModel(),
-                UserModelMigration(),
-                FriendshipModelMigration()
-            ])
-
-        }
-
+        
         func testKitchenSink() throws {
             let createUser = KitchenSink()
             try createUser.create(on: app.db).wait()
