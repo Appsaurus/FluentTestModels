@@ -13,7 +13,6 @@ private extension FieldKey {
     static var name: Self { "name" }
 }
 
-
 public final class UserModel: Model {
 
     public static var schema: String {
@@ -26,7 +25,7 @@ public final class UserModel: Model {
     @Field(key: .name)
     public var name: String
 
-    @SelfSiblingsProperty(through: FriendshipModel.self, from: \.$leftUser, to: \.$rightUser)
+    @SelfSiblingsProperty(through: FriendshipModel.self, from: \.$fromUser, to: \.$toUser)
     public var socialGraph: [UserModel]
 
     public init() {}
@@ -54,8 +53,8 @@ public class UserModelMigration: Migration {
 }
 
 private extension FieldKey {
-    static var leftUser: Self { "leftUser"}
-    static var rightUser: Self { "rightUser"}
+    static var fromUser: Self { "fromUser"}
+    static var toUser: Self { "toUser"}
 }
 
 final class FriendshipModel: Model {
@@ -64,13 +63,14 @@ final class FriendshipModel: Model {
     @ID(key: .id)
     var id: UUID?
 
-    @Parent(key: .leftUser)
-    var leftUser: UserModel
+    @Parent(key: .fromUser)
+    var fromUser: UserModel
 
-    @Parent(key: .rightUser)
-    var rightUser: UserModel
+    @Parent(key: .toUser)
+    var toUser: UserModel
 
     init() { }
+
 
 //    init(id: UUID? = nil, users: (UserModel, UserModel)) throws {
 //
@@ -86,10 +86,11 @@ final class FriendshipModel: Model {
 //            leftUUID.uuidString < rightUUID.uuidString
 //        }
 //        self.id = id
-//        self.$leftUser.id = ids[0]
-//        self.$rightUser.id = ids[1]
+//        self.$fromUser.id = ids[0]
+//        self.$toUser.id = ids[1]
 //    }
 }
+
 
 
 
@@ -100,11 +101,11 @@ public class FriendshipModelMigration: Migration {
 
         database.schema(FriendshipModel.schema)
             .id()
-            .field(.rightUser, .uuid, .required)
-            .foreignKey(.rightUser, references: UserModel.schema, .id)
-            .field(.leftUser, .uuid, .required)
-            .foreignKey(.leftUser, references: UserModel.schema, .id)
-            .unique(on: .rightUser, .leftUser)
+            .field(.toUser, .uuid, .required)
+            .foreignKey(.toUser, references: UserModel.schema, .id)
+            .field(.fromUser, .uuid, .required)
+            .foreignKey(.fromUser, references: UserModel.schema, .id)
+            .unique(on: .toUser, .fromUser)
             .create()
 
     }

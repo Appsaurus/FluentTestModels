@@ -17,8 +17,7 @@ extension Model {
 // MARK: Type
 
 @propertyWrapper
-public final class SelfSiblingsProperty<M, Through>
-where M: Model, Through: Model
+public final class SelfSiblingsProperty<M, Through> where M: Model, Through: Model
 {
     public enum AttachMethod {
         /// Always create the pivot model
@@ -34,14 +33,6 @@ where M: Model, Through: Model
 
     public var value: [M]?
 
-    /// Allows eager loading of pivot objects through the sibling relation.
-    /// Example:
-    ///
-    ///     Planet.query(on: db)
-    ///         .with(\.$tags).with(\.$tags.$pivots).first() { planet in
-    ///             // you can now access the loaded pivots using:
-    ///             let pivots = planet.$tags.pivots
-    ///         }
     @ChildrenProperty<M, Through>
     public var pivots: [Through]
 
@@ -94,10 +85,9 @@ where M: Model, Through: Model
     public func isAttached(toID: M.IDValue, on database: Database) -> EventLoopFuture<Bool> {
 
         let ids = sortedIDs(toID: toID)
-
         return Through.query(on: database)
-            .filter(self.from.appending(path: \.$id) == ids.fromID)
-            .filter(self.to.appending(path: \.$id) == ids.toID)
+            .filter(self.fromKeyPath == ids.fromID)
+            .filter(self.toKeyPath == ids.toID)
             .first()
             .map { $0 != nil }
     }
@@ -107,7 +97,7 @@ where M: Model, Through: Model
     /// Attach an array model to this model through a pivot.
     ///
     /// - Parameters:
-    ///     - tos: An array of models to attach through a sibling releationship
+    ///     - tos: An array of models to attach through a sibling relationship
     ///     - database: The database to perform the attachment on.
     ///     - edit: An optional closure to edit the pivot model before saving it.
     public func attach(
@@ -213,16 +203,15 @@ where M: Model, Through: Model
     ///     - to: The model to detach from this model.
     ///     - database: The database to perform the attachment on.
     public func detach(_ to: M, on database: Database) -> EventLoopFuture<Void> {
-        guard let fromID = self.idValue else {
-            fatalError("Cannot detach siblings relation from unsaved model.")
-        }
+        let fromID = requireIDValue("Cannot detach siblings relation from unsaved model.")
+
         guard let toID = to.id else {
             fatalError("Cannot detach unsaved model.")
         }
         let sortedIDs = sortIDs(fromID, toID)
         return Through.query(on: database)
-            .filter(self.from.appending(path: \.$id) == sortedIDs.fromID)
-            .filter(self.to.appending(path: \.$id) == sortedIDs.toID)
+            .filter(self.fromKeyPath == sortedIDs.fromID)
+            .filter(self.toKeyPath == sortedIDs.toID)
             .delete()
     }
 
@@ -241,25 +230,39 @@ where M: Model, Through: Model
 
     /// Returns a `QueryBuilder` that can be used to query the siblings.
     public func query(on database: Database) -> EventLoopFuture<QueryBuilder<M>> {
-        guard let idValue = self.idValue else {
-            fatalError("Cannot query siblings relation from unsaved model.")
-        }
 
-        let fromKeyPath = self.from.appending(path: \.$id)
-        let toKeyPath = self.to.appending(path: \.$id)
-        let q = Through.query(on: database)
-            .group(.or) { or in
-                or.filter(fromKeyPath == idValue)
-                or.filter(toKeyPath == idValue)
-            }.all()
-        return q.map { (models: [Through]) -> QueryBuilder<M> in
+        return queryPivot(on: database).all().map { (models: [Through]) -> QueryBuilder<M> in
             let otherIDs = models.map { (model: Through) -> M.IDValue in
-                let fromID = model[keyPath: fromKeyPath].wrappedValue
-                let toID = model[keyPath: toKeyPath].wrappedValue
+                let fromID = model[keyPath: self.fromKeyPath].wrappedValue
+                let toID = model[keyPath: self.toKeyPath].wrappedValue
                 return self.idValue == toID ? fromID : toID
             }
             return M.query(on: database).filter(\M._$id ~~ otherIDs)
         }
+    }
+
+    public func queryPivot(on database: Database) -> QueryBuilder<Through> {
+        let idValue = requireIDValue()
+        return Through.query(on: database)
+            .group(.or) { or in
+                or.filter(fromKeyPath == idValue)
+                or.filter(toKeyPath == idValue)
+            }
+    }
+
+    public func requireIDValue(_ errorMessage: String = "Missing idValue.") -> M.IDValue {
+        guard let idValue = self.idValue else {
+            fatalError(errorMessage)
+        }
+        return idValue
+    }
+
+    var fromKeyPath: KeyPath<Through, FieldProperty<Through, M.IDValue>> {
+        self.from.appending(path: \.$id)
+    }
+
+    var toKeyPath: KeyPath<Through, FieldProperty<Through, M.IDValue>> {
+        self.to.appending(path: \.$id)
     }
 
 }
@@ -294,6 +297,7 @@ extension SelfSiblingsProperty: AnyDatabaseProperty {
         let key = M()._$id.key
         if output.contains(key) {
             self.idValue = try output.decode(key, as: M.IDValue.self)
+            
 //            self._pivots.idValue = self.idValue
         }
     }
@@ -442,21 +446,52 @@ extension SelfSiblingsProperty {
 
 
     func sortIDs(_ firstID: M.IDValue, _ secondID: M.IDValue) -> (fromID: M.IDValue, toID: M.IDValue) {
+        SelfSiblingIDSorter.sortIDs(firstID, secondID)
+    }
+}
+
+public struct SelfSiblingIDSorter {
+    static func sortModelIDs<M: Model>(_ firstModel: M, _ secondModel: M) -> (fromID: M.IDValue, toID: M.IDValue) {
+        guard let firstID = firstModel.id, let secondID = secondModel.id else {
+            fatalError("Siblings must both have ids set")
+        }
+        return sortIDs(firstID, secondID)
+    }
+    static func sortIDs<ID: Codable & Hashable>(_ firstID: ID, _ secondID: ID) -> (fromID: ID, toID: ID) {
         switch (firstID, secondID) {
         case (let firstID as UUID, let secondID as UUID):
             let sorted = [firstID, secondID].sorted(by: {$0.uuidString < $1.uuidString})
-            return (fromID: sorted[0], toID: sorted[1]) as! (M.IDValue, M.IDValue)
+            return (fromID: sorted[0], toID: sorted[1]) as! (ID, ID)
         case (let firstID as String, let secondID as String):
                 let sorted = [firstID, secondID].sorted()
-                return (fromID: sorted[0], toID: sorted[1]) as! (M.IDValue, M.IDValue)
+                return (fromID: sorted[0], toID: sorted[1]) as! (ID, ID)
         case (let firstID as Int, let secondID as Int):
             let sorted = [firstID, secondID].sorted()
-            return (fromID: sorted[0], toID: sorted[1]) as! (M.IDValue, M.IDValue)
+            return (fromID: sorted[0], toID: sorted[1]) as! (ID, ID)
         case (_, _):
-            fatalError("Unsupported ID Type: \(M.IDValue.self)")
+            fatalError("Unsupported ID Type: \(ID.self)")
         }
-
     }
 }
 
 
+
+struct SelfSiblingModelMiddleware<Through: Model, M: Model>: ModelMiddleware {
+    var from: KeyPath<Through, ParentProperty<Through, M>>
+    var to: KeyPath<Through, ParentProperty<Through, M>>
+
+    func create(model: Through, on db: Database, next: AnyModelResponder) -> EventLoopFuture<Void> {
+        // The model can be altered here before it is created.
+        let ids = SelfSiblingIDSorter.sortIDs(model[keyPath: from].id, model[keyPath: to].id)
+        model[keyPath: from].id = ids.fromID
+        model[keyPath: to].id = ids.toID
+        return next.create(model, on: db)
+    }
+}
+
+extension Model {
+    static func selfSiblingMiddleware<M>(from: KeyPath<Self, ParentProperty<Self, M>>,
+                                         to: KeyPath<Self, ParentProperty<Self, M>>) -> SelfSiblingModelMiddleware<Self, M> {
+        SelfSiblingModelMiddleware<Self, M>(from: from, to: to)
+    }
+}

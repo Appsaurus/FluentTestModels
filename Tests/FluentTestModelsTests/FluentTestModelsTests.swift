@@ -17,6 +17,8 @@
 
             app.databases.use(.sqlite(.memory), as: .sqlite)
 
+            let siblingsMiddleware = FriendshipModel.selfSiblingMiddleware(from: \.$fromUser, to: \.$toUser)
+            app.databases.middleware.use(siblingsMiddleware)
             try! migrations(app)
             try! app.autoRevert().wait()
             try! app.autoMigrate().wait()
@@ -28,6 +30,9 @@
                 KitchenSink(),
                 ParentModelMigration(),
                 ChildModelMigration(),
+                StudentModel(),
+                ClassModel(),
+                EnrollmentModel(),
                 UserModelMigration(),
                 FriendshipModelMigration()
             ])
@@ -94,6 +99,53 @@
 
         }
 
+        func testSiblings() throws {
+
+            func assert(_ student: StudentModel, isEnrolled: Bool, in `class`: ClassModel) throws {
+                //Check via class
+                let isInClassRoster = try `class`.$students.isAttached(to: student, on: app.db).wait()
+
+                //Check via student
+                let isOnStudentSchedule = try student.$classes.isAttached(to: `class`, on: app.db).wait()
+
+                if isEnrolled {
+                    XCTAssert(isInClassRoster)
+                    XCTAssert(isOnStudentSchedule)
+                }
+                else {
+                    XCTAssertFalse(isInClassRoster)
+                    XCTAssertFalse(isOnStudentSchedule)
+                }
+            }
+
+            let brian = StudentModel()
+            let josh = StudentModel()
+            let gerry = StudentModel()
+
+            try [brian, josh, gerry].forEach({try $0.create(on: app.db).wait()})
+
+
+            let algorithms = ClassModel()
+            let discreteMathematics = ClassModel()
+
+            try [algorithms, discreteMathematics].forEach({try $0.save(on: app.db).wait()})
+
+            try algorithms.$students.attach([brian, josh], on: app.db).wait()
+
+            try discreteMathematics.$students.attach([brian, gerry], on: app.db).wait()
+
+
+            try assert(brian, isEnrolled: true, in: algorithms)
+            try assert(josh, isEnrolled: true, in: algorithms)
+            try assert(gerry, isEnrolled: false, in: algorithms)
+
+            try assert(brian, isEnrolled: true, in: discreteMathematics)
+            try assert(josh, isEnrolled: false, in: discreteMathematics)
+            try assert(gerry, isEnrolled: true, in: discreteMathematics)
+
+
+        }
+
         func testSelfSiblings() throws {
             let bill = UserModel(name: "Bill")
             try bill.create(on: app.db).wait()
@@ -108,8 +160,20 @@
             try ted.$socialGraph.attach(bill, on: app.db).wait()
             try assert(bill, ted, areFriends: true)
 
-            //Make sure we throw if we try to add an existing relationship in reverse
+            //Make sure we throw if we try to add an existing relationship in reverse.
             XCTAssertThrowsError(try bill.$socialGraph.attach(ted, on: app.db).wait())
+
+            //Make sure we throw if we try to add an existing relationship by creating pivot directly.
+
+            let friendshipModel = FriendshipModel()
+            try friendshipModel.$fromUser.id = ted.requireID()
+            try friendshipModel.$toUser.id = bill.requireID()
+            XCTAssertThrowsError(try friendshipModel.create(on: app.db).wait())
+
+            let friendshipModelReverse = FriendshipModel()
+            try friendshipModelReverse.$fromUser.id = bill.requireID()
+            try friendshipModelReverse.$toUser.id = ted.requireID()
+            XCTAssertThrowsError(try friendshipModelReverse.create(on: app.db).wait())
 
             //Detach friendship
             try bill.$socialGraph.detach(ted, on: app.db).wait()
@@ -120,9 +184,9 @@
 
         }
 
-        func assert(_ leftUser: UserModel, _ rightUser: UserModel, areFriends: Bool) throws {
-            let leftUserID = try leftUser.requireID()
-            let rightUserID = try rightUser.requireID()
+        func assert(_ fromUser: UserModel, _ toUser: UserModel, areFriends: Bool) throws {
+            let fromUserID = try fromUser.requireID()
+            let toUserID = try toUser.requireID()
 
             func assertion(_ expression: Bool) -> () {
                 if areFriends {
@@ -135,29 +199,29 @@
             //Check these methods in both directions
 
             //Through isAttached(to:on:) method of socialGraph property.
-            assertion(try leftUser.$socialGraph.isAttached(to: rightUser, on: app.db).wait())
-            assertion(try rightUser.$socialGraph.isAttached(to: leftUser, on: app.db).wait())
+            assertion(try fromUser.$socialGraph.isAttached(to: toUser, on: app.db).wait())
+            assertion(try toUser.$socialGraph.isAttached(to: fromUser, on: app.db).wait())
 
             //Check queries to make sure they return friends.
 
             //Through sqlQuery(on:) method of socialGraph property.
-            let rightUserFriends = try rightUser.$socialGraph
+            let toUserFriends = try toUser.$socialGraph
                 .sqlQuery(on: app.db)
                 .all(decoding: UserModel.self).wait()
-            let rightUserIsFriendsWithBill = rightUserFriends.contains(where: {$0.id == leftUserID})
+            let toUserIsFriendsWithFromUser = toUserFriends.contains(where: {$0.id == fromUserID})
 
-            assertion(rightUserIsFriendsWithBill)
+            assertion(toUserIsFriendsWithFromUser)
 
 
             //Fetch all friends through Fluent QueryBuilder
-            let leftUserFriends = try leftUser.$socialGraph.get(reload: true, on: app.db).wait()
-            let leftUserIsFriendsWithTed = leftUserFriends.contains(where: {$0.id == rightUserID})
+            let fromUserFriends = try fromUser.$socialGraph.get(reload: true, on: app.db).wait()
+            let fromUserIsFriendsWithToUser = fromUserFriends.contains(where: {$0.id == toUserID})
 
-            assertion(leftUserIsFriendsWithTed)
+            assertion(fromUserIsFriendsWithToUser)
 
             //Through query(on:) method of socialGraph property.
-            let leftUserFriendQueryBuilder = try leftUser.$socialGraph.query(on: app.db).wait()
-            let leftUserFilteredFriends = try leftUserFriendQueryBuilder.filter(\.$name == rightUser.name).all().wait()
-            assertion(leftUserFilteredFriends.contains(where: {$0.id == rightUserID}))
+            let fromUserFriendQueryBuilder = try fromUser.$socialGraph.query(on: app.db).wait()
+            let fromUserFilteredFriends = try fromUserFriendQueryBuilder.filter(\.$name == toUser.name).all().wait()
+            assertion(fromUserFilteredFriends.contains(where: {$0.id == toUserID}))
         }
     }
