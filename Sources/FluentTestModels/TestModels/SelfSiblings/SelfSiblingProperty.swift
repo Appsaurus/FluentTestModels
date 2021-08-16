@@ -9,23 +9,16 @@ import FluentKit
 import Foundation
 import SQLKit
 
-extension UUID: Comparable {
-    public static func < (lhs: UUID, rhs: UUID) -> Bool {
-        return lhs.uuidString < rhs.uuidString
-    }
-
-
-}
 extension Model {
     public typealias SelfSiblings<Through> = SelfSiblingsProperty<Self, Through>
-        where IDValue: Comparable, Through: Model, Through.IDValue == String
+        where IDValue: Comparable, Through: Model
 }
 
 // MARK: Type
 
 @propertyWrapper
 public final class SelfSiblingsProperty<M, Through>
-where M: Model, M.IDValue: Comparable, Through: Model, Through.IDValue == String
+where M: Model, Through: Model
 {
     public enum AttachMethod {
         /// Always create the pivot model
@@ -99,16 +92,12 @@ where M: Model, M.IDValue: Comparable, Through: Model, Through.IDValue == String
     ///     - toID: The ID of the model to check whether it is attached through a pivot.
     ///     - database: The database to perform the check on.
     public func isAttached(toID: M.IDValue, on database: Database) -> EventLoopFuture<Bool> {
-        guard let fromID = self.idValue else {
-            fatalError("Cannot check if siblings are attached to an unsaved model.")
-        }
 
-        let ids = [fromID, toID].sorted()
-
+        let ids = sortedIDs(toID: toID)
 
         return Through.query(on: database)
-            .filter(self.from.appending(path: \.$id) == ids[0])
-            .filter(self.to.appending(path: \.$id) == ids[1])
+            .filter(self.from.appending(path: \.$id) == ids.fromID)
+            .filter(self.to.appending(path: \.$id) == ids.toID)
             .first()
             .map { $0 != nil }
     }
@@ -442,9 +431,32 @@ extension SelfSiblingsProperty {
             .join(Through.schema, on: "\(M.schema).id == \(toKey) OR \(M.schema).id == \(fromKey)")
     }
 
-    func sortIDs<ID: Comparable>(_ firstID: ID, _ secondID: ID) -> (fromID: ID, toID: ID) {
-//        return (fromID: firstID, toID: secondID)
-        let sorted = [firstID, secondID].sorted()
-        return (fromID: sorted[0], toID: sorted[1])
+    func sortedIDs(toID: M.IDValue) -> (fromID: M.IDValue, toID: M.IDValue) {
+        guard let fromID = self.idValue else {
+            fatalError("Cannot check if siblings are attached to an unsaved model.")
+        }
+
+        return sortIDs(fromID, toID)
+
+    }
+
+
+    func sortIDs(_ firstID: M.IDValue, _ secondID: M.IDValue) -> (fromID: M.IDValue, toID: M.IDValue) {
+        switch (firstID, secondID) {
+        case (let firstID as UUID, let secondID as UUID):
+            let sorted = [firstID, secondID].sorted(by: {$0.uuidString < $1.uuidString})
+            return (fromID: sorted[0], toID: sorted[1]) as! (M.IDValue, M.IDValue)
+        case (let firstID as String, let secondID as String):
+                let sorted = [firstID, secondID].sorted()
+                return (fromID: sorted[0], toID: sorted[1]) as! (M.IDValue, M.IDValue)
+        case (let firstID as Int, let secondID as Int):
+            let sorted = [firstID, secondID].sorted()
+            return (fromID: sorted[0], toID: sorted[1]) as! (M.IDValue, M.IDValue)
+        case (_, _):
+            fatalError("Unsupported ID Type: \(M.IDValue.self)")
+        }
+
     }
 }
+
+
