@@ -7,7 +7,6 @@
 
 import Foundation
 import Fluent
-import FluentSQLiteDriver
 import Vapor
 
 private extension FieldKey {
@@ -41,7 +40,7 @@ private extension FieldKey {
     }
 }
 
-public final class KitchenSink: FluentTestModel{
+public final class KitchenSink: Model, Content {
 
     public static var schema: String {
         "TestModel"
@@ -188,7 +187,7 @@ public final class KitchenSink: FluentTestModel{
 }
 
 //MARK: Migration
-extension KitchenSink {
+extension KitchenSink: Migration {
     public func prepare(on database: Database) -> EventLoopFuture<Void> {
 
         database.schema(KitchenSink.schema)

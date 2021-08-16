@@ -13,7 +13,7 @@ private extension FieldKey {
     static var name: Self { "name" }
 }
 
-public final class UserModel: Model {
+public final class UserModel: Model, Content {
 
     public static var schema: String {
         "UserModel"
@@ -57,7 +57,7 @@ private extension FieldKey {
     static var toUser: Self { "toUser"}
 }
 
-final class FriendshipModel: Model {
+final class FriendshipModel: Model, Content {
     static let schema = "FriendshipModel"
 
     @ID(key: .id)

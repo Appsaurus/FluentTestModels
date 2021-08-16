@@ -1,5 +1,5 @@
 //
-//  ExampleSiblingModel.swift
+//  SiblingRelationship.swift
 //  FluentTestModels
 //
 //  Created by Brian Strobach on 12/11/17.
@@ -8,7 +8,7 @@
 import Fluent
 import Vapor
 
-public final class StudentModel: Model {
+public final class StudentModel: Model, Content {
 
     public static let schema: String = "StudentModel"
 
@@ -35,7 +35,7 @@ extension StudentModel: Migration {
     }
  }
 
-public final class ClassModel: Model {
+public final class ClassModel: Model, Content {
 
     public static let schema: String = "ClassModel"
 
@@ -67,7 +67,7 @@ private extension FieldKey {
     static var classID: Self { "classID" }
 }
 
-public final class EnrollmentModel: Model {
+public final class EnrollmentModel: Model, Content {
 
     public static let schema = "EnrollmentModel"
 

@@ -7,7 +7,6 @@
 
 import Foundation
 import Fluent
-import FluentSQLiteDriver
 import Vapor
 
 private extension FieldKey {
@@ -15,7 +14,7 @@ private extension FieldKey {
 
 }
 
-public final class ParentModel: Model {
+public final class ParentModel: Model, Content {
     public static var schema: String {
         "ParentModel"
     }
@@ -56,7 +55,7 @@ public class ParentModelMigration: Migration {
 private extension FieldKey {
     static var parent: Self { "parent" }
 }
-public final class ChildModel: Model {
+public final class ChildModel: Model, Content {
 
     public static var schema: String {
         "ChildModel"
